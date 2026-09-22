@@ -1,0 +1,363 @@
+
+def databaseImage
+
+pipeline {
+
+    agent any
+
+    environment {
+
+        // Docker build context
+        // Dockerfile-db is located in the repository root
+        BUILD_CONTEXT = './db'
+        DATABASE_DOCKERFILE = './db/Dockerfile'
+
+        // Same Docker image repository for all environments
+        DATABASE_IMAGE_DEV  = 'achalpadol/app-4-db'
+        DATABASE_IMAGE_QA   = 'achalpadol/app-4-db'
+        DATABASE_IMAGE_UAT  = 'achalpadol/app-4-db'
+        DATABASE_IMAGE_PROD = 'achalpadol/app-4-db'
+
+        // Docker Hub
+        REGISTRY_URL = 'https://index.docker.io/v1/'
+
+        // Jenkins Docker Hub credential
+        DEV_DH_CREDENTIALS  = '02_docker_hub_creds'
+        QA_DH_CREDENTIALS   = '02_docker_hub_creds'
+        UAT_DH_CREDENTIALS   = '02_docker_hub_creds'
+        PROD_DH_CREDENTIALS = '02_docker_hub_creds'
+
+        // AWS / EKS
+        AWS_REGION  = 'ap-south-1'
+        EKS_CLUSTER = 'achal-cluster-1'
+
+        // Kubernetes namespaces
+        DEV_NS  = 'app4-dev'
+        QA_NS   = 'app4-qa'
+        UAT_NS  = 'app4-uat'
+        PROD_NS = 'app4-prod'
+    }
+
+    parameters {
+
+        choice(
+            name: 'Environment',
+            choices: ['dev', 'qa', 'uat', 'prod'],
+            description: 'Select deployment environment'
+        )
+
+        string(
+            name: 'IMAGE_TAG',
+            defaultValue: '',
+            description: 'For QA/UAT/PROD, enter the Docker image tag created by DEV. Example: 25'
+        )
+    }
+
+    stages {
+
+        stage('Checkout') {
+
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Validate Parameters') {
+
+            steps {
+
+                script {
+
+                    if (params.Environment != 'dev' &&
+                        !params.IMAGE_TAG?.trim()) {
+
+                        error(
+                            "IMAGE_TAG is required for ${params.Environment}. " +
+                            "Enter the image tag created by the DEV build."
+                        )
+                    }
+                }
+            }
+        }
+
+        stage('Build Database Image - DEV') {
+
+            when {
+                expression {
+                    params.Environment == 'dev'
+                }
+            }
+
+            steps {
+
+                script {
+
+                    databaseImage = docker.build(
+                        "${env.DATABASE_IMAGE_DEV}:${env.BUILD_NUMBER}",
+                        "-f ${env.DATABASE_DOCKERFILE} ${env.BUILD_CONTEXT}"
+                    )
+                }
+            }
+        }
+
+        stage('Push Database Image - DEV') {
+
+            when {
+                expression {
+                    params.Environment == 'dev'
+                }
+            }
+
+            steps {
+
+                script {
+
+                    docker.withRegistry(
+                        env.REGISTRY_URL,
+                        env.DEV_DH_CREDENTIALS
+                    ) {
+
+                        databaseImage.push(
+                            "${env.BUILD_NUMBER}"
+                        )
+                    }
+                }
+            }
+        }
+       stage('Deploy Database - DEV') {
+
+            steps {
+
+                script {
+
+                    deployDatabase(
+                        DEV_NAMESPACE,
+                        DEV_REGISTRY,
+                        env.BUILD_NUMBER,
+                        DEV_DOCKER_CREDS
+                    )
+                }
+            }
+        }
+
+        stage('Promote Database DEV → QA') {
+
+            when {
+
+                expression {
+                    env.DEPLOY_ENV in ['qa', 'uat', 'prod']
+                }
+            }
+
+            steps {
+
+                script {
+
+                    promoteImage(
+                        "${DEV_REGISTRY}:${params.IMAGE_TAG}",
+                        "${QA_REGISTRY}:${params.IMAGE_TAG}",
+                        DEV_DOCKER_CREDS,
+                        QA_DOCKER_CREDS
+                    )
+                }
+            }
+        }
+
+        stage('Deploy Database - QA') {
+
+            when {
+
+                expression {
+                    env.DEPLOY_ENV in ['qa', 'uat', 'prod']
+                }
+            }
+
+            steps {
+
+                script {
+
+                    deployDatabase(
+                        QA_NAMESPACE,
+                        QA_REGISTRY,
+                        params.IMAGE_TAG,
+                        QA_DOCKER_CREDS
+                    )
+                }
+            }
+        }
+
+        stage('Promote Database QA → UAT') {
+
+            when {
+
+                expression {
+                    env.DEPLOY_ENV in ['uat', 'prod']
+                }
+            }
+
+            steps {
+
+                script {
+
+                    promoteImage(
+                        "${QA_REGISTRY}:${params.IMAGE_TAG}",
+                        "${UAT_REGISTRY}:${params.IMAGE_TAG}",
+                        QA_DOCKER_CREDS,
+                        UAT_DOCKER_CREDS
+                    )
+                }
+            }
+        }
+
+        stage('Deploy Database - UAT') {
+
+            when {
+
+                expression {
+                    env.DEPLOY_ENV in ['uat', 'prod']
+                }
+            }
+
+            steps {
+
+                script {
+
+                    deployDatabase(
+                        UAT_NAMESPACE,
+                        UAT_REGISTRY,
+                        params.IMAGE_TAG,
+                        UAT_DOCKER_CREDS
+                    )
+                }
+            }
+        }
+
+        stage('Promote Database UAT → PROD') {
+
+            when {
+
+                expression {
+                    env.DEPLOY_ENV == 'prod'
+                }
+            }
+
+            steps {
+
+                input(
+                    message: "Promote database ${params.IMAGE_TAG} from UAT to PROD?",
+                    ok: 'Promote to Production'
+                )
+
+                script {
+
+                    promoteImage(
+                        "${UAT_REGISTRY}:${params.IMAGE_TAG}",
+                        "${PROD_REGISTRY}:${params.IMAGE_TAG}",
+                        UAT_DOCKER_CREDS,
+                        PROD_DOCKER_CREDS
+                    )
+                }
+            }
+        }
+
+        stage('Deploy Database - PROD') {
+
+            when {
+
+                expression {
+                    env.DEPLOY_ENV == 'prod'
+                }
+            }
+
+            steps {
+
+                script {
+
+                    deployDatabase(
+                        PROD_NAMESPACE,
+                        PROD_REGISTRY,
+                        params.IMAGE_TAG,
+                        PROD_DOCKER_CREDS
+                    )
+                }
+            }
+        }
+    }             
+
+    post {
+
+        always {
+            cleanWs()
+        }
+
+        success {
+            echo 'Database deployment completed successfully.'
+        }
+
+        failure {
+            echo 'Database deployment failed.'
+        }
+    }
+}
+
+
+/*
+ * Reusable database deployment function
+ */
+def deployDatabase(namespace, imageName, imageTag) {
+
+    sh """
+        set -e
+
+        echo "=========================================="
+        echo "Connecting to EKS cluster..."
+        echo "=========================================="
+
+        aws eks update-kubeconfig \
+            --region ${env.AWS_REGION} \
+            --name ${env.EKS_CLUSTER}
+
+        echo "=========================================="
+        echo "Creating namespace if required..."
+        echo "=========================================="
+
+        kubectl create namespace ${namespace} \
+            --dry-run=client \
+            -o yaml | kubectl apply -f -
+
+        echo "=========================================="
+        echo "Applying database Kubernetes manifest..."
+        echo "=========================================="
+
+        kubectl apply \
+           -f kube/db-secret.yml \
+           -f kube/configmap.yml \
+           -f kube/db-pvc.yml
+           -f kube/db-service.yml \
+           -f kube/db-deployment.yml \
+           -n ${namespace}
+
+        echo "=========================================="
+        echo "Updating database Docker image..."
+        echo "=========================================="
+
+        kubectl set image \
+            deployment/app4-db \
+            db=${imageName}:${imageTag} \
+            -n ${namespace}
+
+        echo "=========================================="
+        echo "Waiting for database rollout..."
+        echo "=========================================="
+
+        kubectl rollout status \
+            deployment/app4-db \
+            -n ${namespace}
+
+        echo "=========================================="
+        echo "Database deployment completed."
+        echo "Image: ${imageName}:${imageTag}"
+        echo "Namespace: ${namespace}"
+        echo "=========================================="
+    """
+}
