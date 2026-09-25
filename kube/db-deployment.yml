@@ -17,7 +17,7 @@ spec:
 
     spec:
       containers:
-        - name: postgress
+        - name: db
           image: docker.io/achalpadol/react-rust-post-db:v1
 
           ports:
