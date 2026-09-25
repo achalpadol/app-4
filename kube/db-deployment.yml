@@ -23,7 +23,7 @@ spec:
             - containerPort: 5432
 
           env:
-            - name: POSTGRESS-DB
+            - name: PG_DBNAME
               valueFrom:
                 configMapKeyRef:
                   name: db-config
