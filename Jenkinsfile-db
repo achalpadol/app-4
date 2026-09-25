@@ -9,7 +9,7 @@ pipeline {
         // =========================================================
         // Docker build context
         // =========================================================
-        BUILD_CONTEXT = './db'
+        BUILD_CONTEXT = './backend'
 
         // =========================================================
         // Docker images
@@ -297,12 +297,12 @@ def deployDatabaseToEKS(
 
         echo "Updating database image"
 
-        kubectl -n ${namespace} set image deployment/app1-db \
+        kubectl -n ${namespace} set image deployment/db \
             db=${image}:${imageTag}
 
         echo "Waiting for database rollout"
 
-        kubectl -n ${namespace} rollout status deployment/app1-db
+        kubectl -n ${namespace} rollout status deployment/db
     """
 }
 
