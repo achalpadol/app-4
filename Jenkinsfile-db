@@ -289,7 +289,7 @@ def deployDatabaseToEKS(
 
         kubectl apply \
             -f kube/db-secret.yml \
-            -f kube/db-pvc.yml
+            -f kube/db-pvc.yml \
             -f kube/configmap.yml \
             -f kube/db-service.yml \
             -f kube/db-deployment.yml \
