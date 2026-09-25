@@ -6,37 +6,34 @@ pipeline {
 
     environment {
 
+        // =========================================================
         // Docker build context
-        BUILD_CONTEXT = './frontend'
-        BACKEND_DOCKERFILE = './frontend/Dockerfile'
+        // =========================================================
+        BUILD_CONTEXT = './proxy'
 
-        // Same Docker image repository for all environments
-        FRONTEND_IMAGE_DEV  = 'achalpadol/app-4-proxy'
-        FRONTEND_IMAGE_QA   = 'achalpadol/app-4-proxy'
-        FRONTEND_IMAGE_UAT  = 'achalpadol/app-4-proxy'
-        FRONTEND_IMAGE_PROD = 'achalpadol/app-4-proxy'
+        // =========================================================
+        // Docker images
+        // =========================================================
+        PROXY_IMAGE_DEV  = 'achalpadol/app-4-proxy'
+        PROXY_IMAGE_QA   = 'achalpadol/app-4-proxy'
+        PROXY_IMAGE_UAT  = 'achalpadol/app-4-proxy'
+        PROXY_IMAGE_PROD = 'achalpadol/app-4-proxy'
 
-        // Common frontend image
-        FRONTEND_IMAGE = 'achalpadol/app-4-proxy'
-
+        // =========================================================
         // Docker Hub
+        // =========================================================
         REGISTRY_URL = 'https://index.docker.io/v1/'
 
-        // Jenkins Docker Hub credential
         DEV_DH_CREDENTIALS  = '02_docker_hub_creds'
         QA_DH_CREDENTIALS   = '02_docker_hub_creds'
         UAT_DH_CREDENTIALS  = '02_docker_hub_creds'
         PROD_DH_CREDENTIALS = '02_docker_hub_creds'
 
+        // =========================================================
         // AWS / EKS
+        // =========================================================
         AWS_REGION  = 'ap-south-1'
-        EKS_CLUSTER = 'achal-cluster-1'
-
-        // Kubernetes namespaces
-        DEV_NS  = 'app4-dev'
-        QA_NS   = 'app4-qa'
-        UAT_NS  = 'app4-uat'
-        PROD_NS = 'app4-prod'
+        EKS_CLUSTER = 'app1-eks'
     }
 
     parameters {
@@ -50,55 +47,25 @@ pipeline {
         string(
             name: 'IMAGE_TAG',
             defaultValue: '',
-            description: 'For QA/UAT/PROD, enter the Docker image tag created by DEV. Example: 25'
+            description: 'For QA/UAT/PROD, enter the image tag to promote. Example: 25'
         )
     }
 
     stages {
 
-        stage('Checkout') {
-
-            steps {
-
-                checkout scm
-            }
-        }
-
-        stage('Validate Parameters') {
-
-            steps {
-
-                script {
-
-                    if (
-                        params.Environment != 'dev' &&
-                        !params.IMAGE_TAG?.trim()
-                    ) {
-
-                        error(
-                            "IMAGE_TAG is required for ${params.Environment}. " +
-                            "Enter the image tag created by the DEV build."
-                        )
-                    }
-                }
-            }
-        }
-
         stage('Build Frontend Image - DEV') {
 
             when {
-
                 expression {
                     params.Environment == 'dev'
                 }
             }
 
             steps {
-
                 script {
 
                     frontendImage = docker.build(
-                        "${env.FRONTEND_IMAGE_DEV}:${env.BUILD_NUMBER}",
+                        "${env.PROXY_IMAGE_DEV}:${env.BUILD_NUMBER}",
                         env.BUILD_CONTEXT
                     )
                 }
@@ -108,14 +75,12 @@ pipeline {
         stage('Push Frontend Image - DEV') {
 
             when {
-
                 expression {
                     params.Environment == 'dev'
                 }
             }
 
             steps {
-
                 script {
 
                     docker.withRegistry(
@@ -124,83 +89,116 @@ pipeline {
                     ) {
 
                         frontendImage.push(
-                            "${env.BUILD_NUMBER}"
+                            env.BUILD_NUMBER
                         )
                     }
                 }
             }
         }
 
-        stage('Deploy Frontend - DEV') {
+        stage('Deploy DEV') {
 
             when {
-
                 expression {
                     params.Environment == 'dev'
                 }
             }
 
             steps {
-
                 script {
 
-                    deployFrontend(
-                        env.DEV_NS,
-                        env.FRONTEND_IMAGE,
+                    deployFrontendToEKS(
+                        params.Environment,
+                        env.PROXY_IMAGE_DEV,
                         env.BUILD_NUMBER
                     )
                 }
             }
         }
 
-        stage('Deploy Frontend - QA') {
+        stage('Promote Image to QA') {
 
             when {
-
                 expression {
                     params.Environment == 'qa'
                 }
             }
 
             steps {
-
                 script {
 
-                    deployFrontend(
-                        env.QA_NS,
-                        env.FRONTEND_IMAGE,
-                        params.IMAGE_TAG.trim()
+                    promoteImage(
+                        env.PROXY_IMAGE_DEV,
+                        env.PROXY_IMAGE_QA,
+                        params.IMAGE_TAG
                     )
                 }
             }
         }
 
-        stage('Deploy Frontend - UAT') {
+        stage('Deploy QA') {
 
             when {
+                expression {
+                    params.Environment == 'qa'
+                }
+            }
 
+            steps {
+                script {
+
+                    deployFrontendToEKS(
+                        params.Environment,
+                        env.PROXY_IMAGE_QA,
+                        params.IMAGE_TAG
+                    )
+                }
+            }
+        }
+
+        stage('Promote Image to UAT') {
+
+            when {
                 expression {
                     params.Environment == 'uat'
                 }
             }
 
             steps {
-
                 script {
 
-                    deployFrontend(
-                        env.UAT_NS,
-                        env.FRONTEND_IMAGE,
-                        params.IMAGE_TAG.trim()
+                    promoteImage(
+                        env.PROXY_IMAGE_QA,
+                        env.PROXY_IMAGE_UAT,
+                        params.IMAGE_TAG
                     )
                 }
             }
         }
 
-        stage('Production Approval') {
+        stage('Deploy UAT') {
 
             when {
+                expression {
+                    params.Environment == 'uat'
+                }
+            }
 
+            steps {
+                script {
+
+                    deployFrontendToEKS(
+                        params.Environment,
+                        env.PROXY_IMAGE_UAT,
+                        params.IMAGE_TAG
+                    )
+                }
+            }
+        }
+
+        stage('Approve PROD') {
+
+            when {
                 expression {
                     params.Environment == 'prod'
                 }
@@ -209,29 +207,47 @@ pipeline {
             steps {
 
                 input(
-                    message: "Deploy frontend ${env.FRONTEND_IMAGE}:${params.IMAGE_TAG} to PROD?",
-                    ok: 'Deploy to Production'
+                    message: "Promote image ${params.IMAGE_TAG} to PROD?",
+                    ok: 'Promote to PROD'
                 )
             }
         }
 
-        stage('Deploy Frontend - PROD') {
+        stage('Promote Image to PROD') {
 
             when {
-
                 expression {
                     params.Environment == 'prod'
                 }
             }
 
             steps {
-
                 script {
 
-                    deployFrontend(
-                        env.PROD_NS,
-                        env.FRONTEND_IMAGE,
-                        params.IMAGE_TAG.trim()
+                    promoteImage(
+                        env.PROXY_IMAGE_UAT,
+                        env.PROXY_IMAGE_PROD,
+                        params.IMAGE_TAG
+                    )
+                }
+            }
+        }
+
+        stage('Deploy PROD') {
+
+            when {
+                expression {
+                    params.Environment == 'prod'
+                }
+            }
+
+            steps {
+                script {
+
+                    deployFrontendToEKS(
+                        params.Environment,
+                        env.PROXY_IMAGE_PROD,
+                        params.IMAGE_TAG
                     )
                 }
             }
@@ -239,51 +255,37 @@ pipeline {
     }
 
     post {
-
         always {
-
             cleanWs()
-        }
-
-        success {
-
-            echo 'Frontend deployment completed successfully.'
-        }
-
-        failure {
-
-            echo 'Frontend deployment failed.'
         }
     }
 }
 
 
-/*
- * Reusable frontend deployment function
- */
-def deployFrontend(namespace, imageName, imageTag) {
+// =============================================================
+// FUNCTION: Deploy Database to EKS
+// =============================================================
+
+def deployFrontendToEKS(
+    String environment,
+    String image,
+    String imageTag
+) {
+
+    def namespace = "app-${environment}"
 
     sh """
 
-        echo "Connecting to EKS cluster..."
-
-        echo "EKS_CLUSTER = ${env.EKS_CLUSTER}"
-
-        echo "AWS_REGION = ${env.AWS_REGION}"
-
         aws eks update-kubeconfig \
-            --region ${env.AWS_REGION} \
-            --name ${env.EKS_CLUSTER}
+            --region ${AWS_REGION} \
+            --name ${EKS_CLUSTER}
 
+        echo "Checking namespace ${namespace}"
 
-        echo "Creating namespace if required..."
+        kubectl get namespace ${namespace} || \
+        kubectl create namespace ${namespace}    
 
-        kubectl create namespace ${namespace} \
-            --dry-run=client \
-            -o yaml | kubectl apply -f -
-
-
-        echo "Applying frontend Kubernetes manifest..."
+        echo "Applying database Kubernetes manifests to ${namespace}"
 
         kubectl apply \
             -f kube/frontend-service.yml \
@@ -292,22 +294,59 @@ def deployFrontend(namespace, imageName, imageTag) {
             -n ${namespace}
 
 
-        echo "Updating frontend Docker image..."
+        kubectl -n ${namespace} set image deployment/app-1 \
+            app-1-cont=${image}:${imageTag}
 
-        kubectl set image \
-            deployment/app-4 \
-            app-4-cont=${imageName}:${imageTag} \
-            -n ${namespace}
-
-
-        echo "Waiting for frontend rollout..."
-
-        kubectl rollout status \
-            deployment/app-4 \
-            -n ${namespace}
-
-
-        echo "Frontend deployment completed."
-
+        kubectl -n ${namespace} rollout status deployment/app-1
     """
+}
+
+
+// =============================================================
+// FUNCTION: Promote Docker Image
+// =============================================================
+
+def promoteImage(
+    String sourceImage,
+    String targetImage,
+    String imageTag
+) {
+
+    // ---------------------------------------------------------
+    // Pull source image
+    // ---------------------------------------------------------
+
+    docker.withRegistry(
+        env.REGISTRY_URL,
+        env.DEV_DH_CREDENTIALS
+    ) {
+
+        docker.image(
+            "${sourceImage}:${imageTag}"
+        ).pull()
+    }
+
+    // ---------------------------------------------------------
+    // Tag image for target environment
+    // ---------------------------------------------------------
+
+    sh """
+        docker tag \
+            ${sourceImage}:${imageTag} \
+            ${targetImage}:${imageTag}
+    """
+
+    // ---------------------------------------------------------
+    // Push target image
+    // ---------------------------------------------------------
+
+    docker.withRegistry(
+        env.REGISTRY_URL,
+        env.DEV_DH_CREDENTIALS
+    ) {
+
+        docker.image(
+            "${targetImage}:${imageTag}"
+        ).push()
+    }
 }
