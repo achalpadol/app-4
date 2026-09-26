@@ -35,7 +35,7 @@ spec:
                   name: db-config
                   key: PG_USER
 
-            - name:  PG_PASSWORD
+            - name:  POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: db-secret
