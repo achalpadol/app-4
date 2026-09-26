@@ -295,11 +295,7 @@ def deployDatabaseToEKS(
             -f kube/db-deployment.yml \
             -n ${namespace}
 
-        echo "Updating database image"
-
-        kubectl -n ${namespace} set image deployment/db \
-            db=${image}:${imageTag}
-
+    
         echo "Waiting for database rollout"
 
         kubectl -n ${namespace} rollout status deployment/db
