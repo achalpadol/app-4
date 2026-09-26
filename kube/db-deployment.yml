@@ -18,8 +18,7 @@ spec:
       containers:
         - name: db
           image: docker.io/achalpadol/react-rust-post-db:v1
-          subPath: postgres
-
+         
           ports:
             - containerPort: 5432
 
