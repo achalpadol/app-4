@@ -27,7 +27,7 @@ pipeline {
 
         // AWS / EKS
         AWS_REGION  = 'ap-south-1'
-        EKS_CLUSTER = 'achal-cluster-1'
+        EKS_CLUSTER = 'app1-eks'
 
         // Kubernetes namespaces
         DEV_NS  = 'app4-dev'
@@ -295,7 +295,7 @@ def deployBackend(namespace, imageName, imageTag) {
 
         echo "Updating backend image..."
 
-        kubectl set image deployment/app4-backend \
+        kubectl set image deployment/backend \
             backend=${imageName}:${imageTag} \
             -n ${namespace}
 
@@ -303,7 +303,7 @@ def deployBackend(namespace, imageName, imageTag) {
         echo "Waiting for rollout..."
 
         kubectl rollout status \
-            deployment/app4-backend \
+            deployment/backend \
             -n ${namespace}
 
 
