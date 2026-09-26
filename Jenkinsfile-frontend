@@ -294,10 +294,10 @@ def deployFrontendToEKS(
             -n ${namespace}
 
 
-        kubectl -n ${namespace} set image deployment/app-1 \
-            app-1-cont=${image}:${imageTag}
+        kubectl -n ${namespace} set image deployment/frontend \
+            frontend=${image}:${imageTag}
 
-        kubectl -n ${namespace} rollout status deployment/app-1
+        kubectl -n ${namespace} rollout status deployment/frontend
     """
 }
 
