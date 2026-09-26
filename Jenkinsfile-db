@@ -298,21 +298,14 @@ def deployDatabaseToEKS(
     
        echo "Getting database container name"
 
-        CONTAINER_NAME=\$(kubectl get deployment db \
-        -n ${NAMESPACE} \
-        -o jsonpath='{.spec.template.spec.containers[0].name}')
-
-        echo "Container name: \$CONTAINER_NAME"
-
-        echo "Updating database image"
-
-        kubectl -n ${namespace} set image deployment/db \
-            \$CONTAINER_NAME=${image}:${imageTag}
-
-        echo "Waiting for database rollout"
-
-        kubectl -n ${namespace} rollout status deployment/db
-    """
+       kubectl -n ${namespace} get deployment db
+       echo "Waiting for PostgreSQL rollout"
+       kubectl -n ${namespace} rollout status deployment/db
+       echo "Database deployment completed"
+       echo "Database pods:
+       kubectl -n ${namespace} get pods
+       echo "Database service:"
+       kubectl -n ${namespace} get svc db
 }
 
 
