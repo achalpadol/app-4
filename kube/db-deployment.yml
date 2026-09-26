@@ -28,6 +28,12 @@ spec:
                 configMapKeyRef:
                   name: db-config
                   key: PG_DBNAME
+                  
+            - name: PG_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: db-config
+                  key: PG_USER
 
             - name: PG_PASSWORD
               valueFrom:
