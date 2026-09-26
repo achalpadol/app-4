@@ -35,7 +35,7 @@ spec:
                   name: db-config
                   key: PG_USER
 
-            - name: POSTGRES_PASSWORD
+            - name:  PG_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: db-secret
@@ -47,4 +47,5 @@ spec:
 
       volumes:
         - name: db-data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: db-data
